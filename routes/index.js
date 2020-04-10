@@ -5,12 +5,23 @@ var path = require("path");
 var mongoose = require("mongoose");
 var multer = require("multer");
 mongoose.Promise = global.Promise;
-var async = require("async");
-var nodemailer = require("nodemailer");
-var crypto = require("crypto");
 const bcrypt = require("bcryptjs");
 const passport = require("passport");
+require("../config/passport")(passport);
 const winston = require('winston');
+
+var session = require('express-session');
+var flash = require('connect-flash');
+router.use(
+  session({
+    cookie: { maxAge: 60000 },
+    secret: "secret",
+    resave: false,
+    saveUninitialized: false
+  })
+);
+router.use(flash());
+
 
 // Logger configuration
 const logConfiguration = {
@@ -56,8 +67,12 @@ client
     
   });
 
+  const { ensureAuthenticated } = require('../config/auth');
 
-router.get("/", (req, res) => { res.render("welcome"); });
+
+router.get("/", (req, res) =>{
+  res.render("welcome");
+});
 // register image
 
   // SET STORAGE
@@ -89,11 +104,10 @@ router.get("/", (req, res) => { res.render("welcome"); });
       mongoose
         .connect(uri, {useNewUrlParser: true, useUnifiedTopology: true})
         .then(client => {
-          res.redirect("register");
-          console.log(newItem);
+          req.flash('success', 'You have been successfully registered.');
+            res.locals.message = req.flash();
+            res.render('register');
         })
-        .catch(err => {
-        });
       client.close();
   });
 
@@ -116,16 +130,88 @@ router.get("/", (req, res) => { res.render("welcome"); });
     client.close();
   });
 
-// register
-router.get("/register", (req, res) => { res.render("register"); });
-router.post("/register", (req,res) => {
-    res.redirect("register");
+// admin signup
+router.get("/signup", (req, res) => {
+  res.render("signup");
 });
+router.post("/signup", (req, res) => {
+  const {username, password} = req.body;
+  let errors = [];
+
+  
+     //check password length
+    if(password.length < 6) {
+        errors.push({msg: "password should be at least 6 characters"});
+    }
+
+  if (errors.length > 0) {
+    res.render("signup", {
+      errors,
+      username,
+      password
+    });
+  } else {
+    //validation passed
+   mongoose
+     .connect(uri, {useNewUrlParser: true, useUnifiedTopology: true})
+     .then(client => {
+      admins.findOne({username:username})
+      .then(user => {
+        if (user) {
+          //User exists
+          errors.push({msg: "user is already registered"});
+          console.log("user exists");
+          res.render("signup", {
+            errors,
+            username,
+            password
+          });
+        } else {
+          const newUser = new admins({
+            username,
+            password
+          });
+          //Hash password
+          bcrypt.genSalt(10, (err, salt) =>
+            bcrypt.hash(newUser.password, salt, (err, hash) => {
+              if (err) throw err;
+              //set password to hashed
+              newUser.password = hash;
+              //save user
+              newUser
+                .save()
+                .then(user => {
+                  req.flash("success_msg", "You are now registered");
+                  console.log("You are now registered");
+                  res.redirect("/admin");
+                })
+            })
+          );
+        }
+      });
+     })
+   client.close();
+
+    
+  }
+});
+
+// admin login
 router.get("/admin", (req, res) => { res.render("admin"); });
-router.post("/login", (req,res) => {
-    res.redirect("users");
+router.post("/login", (req,res, next) => {
+  mongoose
+  .connect(uri, {useNewUrlParser: true, useUnifiedTopology: true})
+  .then(client => {
+     passport.authenticate("local", {
+       successRedirect: "/users",
+       failureRedirect: "/admin",
+       requestFlash: true
+     })(req, res, next);
+  })
+client.close();
 });
-router.get("/users", (req, res) => {
+
+router.get("/users",ensureAuthenticated, (req, res) => {
   mongoose
   .connect(uri, {useNewUrlParser: true, useUnifiedTopology: true})
   .then(client => {
@@ -137,5 +223,17 @@ router.get("/users", (req, res) => {
   })
 client.close();
 });
+
+ //logout Handle
+ router.get("/logout", ensureAuthenticated, (req, res) => {
+  mongoose
+    .connect(uri, {useNewUrlParser: true, useUnifiedTopology: true})
+    .then(client => {
+      req.logout();
+      res.redirect("/admin");
+    })
+  client.close();
+});
+
 
 module.exports = router;

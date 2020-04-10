@@ -38,16 +38,6 @@ app.use(passport.session());
 //connect flash
 app.use(flash());
 
-
-//Global variables
-app.use((req, res, next) => {
-    res.locals.success_msg = req.flash('success_msg');
-    res.locals.error_msg = req.flash('error_msg');
-    res.locals.error = req.flash('error');
-    next();
-})
-
-
 app.use(express.static('public'));
 app.use(express.static(__dirname + "./public/"));
 app.set('trust proxy', true);
